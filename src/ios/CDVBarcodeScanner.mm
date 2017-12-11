@@ -879,7 +879,7 @@ parentViewController:(UIViewController*)parentViewController
     // [self.view addSubview:btn];
     
     // 文本输入框
-    [self drawTextField];
+    // [self drawTextField];
     
     }
 
