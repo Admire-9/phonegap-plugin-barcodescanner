@@ -869,17 +869,17 @@ parentViewController:(UIViewController*)parentViewController
     [self drawLabelTip];
     
     // 结束按钮
-    UIButton* btn = [UIButton buttonWithType:UIButtonTypeRoundedRect];
-    btn.frame = CGRectMake(self.cutRect.origin.x + self.cutRect.size.width/2 - 60, self.cutRect.origin.y + self.cutRect.size.height + 40, 120, 40);
-    btn.backgroundColor = [UIColor orangeColor];
-    btn.layer.cornerRadius = 10;
-    [btn setTitle:@"结束" forState:UIControlStateNormal];
-    SEL eventHander = @selector(cancelButtonPressed:);
-    [btn addTarget:self action:eventHander forControlEvents:UIControlEventTouchUpInside];
-    [self.view addSubview:btn];
+    // UIButton* btn = [UIButton buttonWithType:UIButtonTypeRoundedRect];
+    // btn.frame = CGRectMake(self.cutRect.origin.x + self.cutRect.size.width/2 - 60, self.cutRect.origin.y + self.cutRect.size.height + 40, 120, 40);
+    // btn.backgroundColor = [UIColor orangeColor];
+    // btn.layer.cornerRadius = 10;
+    // [btn setTitle:@"结束" forState:UIControlStateNormal];
+    // SEL eventHander = @selector(cancelButtonPressed:);
+    // [btn addTarget:self action:eventHander forControlEvents:UIControlEventTouchUpInside];
+    // [self.view addSubview:btn];
     
     // 文本输入框
-    [self drawTextField];
+    // [self drawTextField];
     
     }
 
@@ -970,11 +970,11 @@ parentViewController:(UIViewController*)parentViewController
     pathLayer.path = linePath.CGPath;// 从贝塞尔曲线获取到形状
     pathLayer.fillColor = Color.CGColor; // 闭环填充的颜色
     //        pathLayer.lineCap       = kCALineCapSquare;               // 边缘线的类型
-    pathLayer.strokeColor = [UIColor orangeColor].CGColor; // 边缘线的颜色
+    pathLayer.strokeColor = [UIColor colorWithRed:0f/255.0f green:144.0f/255.0f blue:242.0f/255.0f].CGColor; // 边缘线的颜色
     //        pathLayer.lineWidth     = 4.0f;                           // 线条宽度
     [self.view.layer addSublayer:pathLayer];
 }
-
+ 
 //-------------扫描线---------------
 - (void)drawLine
 {
