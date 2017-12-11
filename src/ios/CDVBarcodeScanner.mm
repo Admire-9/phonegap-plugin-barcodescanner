@@ -446,7 +446,7 @@ parentViewController:(UIViewController*)parentViewController
         }
     [self performSelector:@selector(scanBarcode) withObject:nil afterDelay:0.1];
     }];
-}
+} 
 
 - (void)toggleTorch {
   AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
@@ -1103,7 +1103,7 @@ parentViewController:(UIViewController*)parentViewController
 //--------------------------------------------------------------------------
 
 #define RETICLE_SIZE    500.0f
-#define RETICLE_WIDTH    10.0f
+#define RETICLE_WIDTH    1.0f
 #define RETICLE_OFFSET   60.0f
 #define RETICLE_ALPHA     0.4f
 
@@ -1115,19 +1115,19 @@ parentViewController:(UIViewController*)parentViewController
     UIGraphicsBeginImageContext(CGSizeMake(RETICLE_SIZE, RETICLE_SIZE));
     CGContextRef context = UIGraphicsGetCurrentContext();
 
-    if (self.processor.is1D) {
-        UIColor* color = [UIColor colorWithRed:0.0 green:0.0 blue:0.0 alpha:RETICLE_ALPHA];
-        CGContextSetStrokeColorWithColor(context, color.CGColor);
-        CGContextSetLineWidth(context, RETICLE_WIDTH);
-        CGContextBeginPath(context);
-        CGFloat lineOffset = (CGFloat) (RETICLE_OFFSET+(0.5*RETICLE_WIDTH));
-        CGContextMoveToPoint(context, lineOffset, RETICLE_SIZE/2);
-        CGContextAddLineToPoint(context, RETICLE_SIZE-lineOffset, (CGFloat) (0.5*RETICLE_SIZE));
-        CGContextStrokePath(context);
-    }
+    // if (self.processor.is1D) {
+    //     UIColor* color = [UIColor colorWithRed:0.0 green:0.0 blue:0.0 alpha:RETICLE_ALPHA];
+    //     CGContextSetStrokeColorWithColor(context, color.CGColor);
+    //     CGContextSetLineWidth(context, RETICLE_WIDTH);
+    //     CGContextBeginPath(context);
+    //     CGFloat lineOffset = (CGFloat) (RETICLE_OFFSET+(0.5*RETICLE_WIDTH));
+    //     CGContextMoveToPoint(context, lineOffset, RETICLE_SIZE/2);
+    //     CGContextAddLineToPoint(context, RETICLE_SIZE-lineOffset, (CGFloat) (0.5*RETICLE_SIZE));
+    //     CGContextStrokePath(context);
+    // }
 
     if (self.processor.is2D) {
-        UIColor* color = [UIColor colorWithRed:0.0 green:0.0 blue:0.0 alpha:RETICLE_ALPHA];
+        UIColor* color = [UIColor colorWithRed:176/255.0 green:166/255.0 blue:163/255.0];
         CGContextSetStrokeColorWithColor(context, color.CGColor);
         CGContextSetLineWidth(context, RETICLE_WIDTH);
         CGContextStrokeRect(context,
@@ -1139,12 +1139,45 @@ parentViewController:(UIViewController*)parentViewController
                                        )
                             );
     }
-
+    [self addCorner]
     result = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
     return result;
 }
 
+-(void)addCorner:(CGContextRef)ctx rect:(CGRect)rect{
+    CGContextSetLineWidth(ctx, 2);
+    CGContextSetRGBStrokeColor(ctx,255 /255.0, 255/255.0, 255/255.0, 1 );
+    //    左上角
+    CGPoint leftPointsA[] = {
+        CGPointMake(rect.origin.x - 5, rect.origin.y + 5),
+        CGPointMake(rect.origin.x - 5, rect.origin.y - 5),
+        CGPointMake(rect.origin.x + 15, rect.origin.y - 5),
+    };
+    CGContextAddLines(ctx, leftPointsA, 3);
+    // 右上角
+    CGPoint rightPointsA[] = {
+        CGPointMake(rect.origin.x + rect.size.width + 5, rect.origin.y + 5),
+        CGPointMake(rect.origin.x + rect.size.width + 5, rect.origin.y - 5),
+        CGPointMake(rect.origin.x + rect.size.width -15, rect.origin.y - 5)
+    };
+    CGContextAddLines(ctx, rightPointsA, 3);
+    //左下角
+    CGPoint leftPointsB[] = {
+        CGPointMake(rect.origin.x - 5, rect.origin.y +rect.size.height - 5),
+        CGPointMake(rect.origin.x - 5, rect.origin.y + rect.size.height + 5),
+        CGPointMake(rect.origin.x + 15, rect.origin.y +rect.size.height + 5)
+    };
+    CGContextAddLines(ctx, leftPointsB, 3);
+    //右下角
+    CGPoint rightPointsB[] = {
+        CGPointMake(rect.origin.x + rect.size.width + 5, rect.origin.y +rect.size.height - 5),
+        CGPointMake(rect.origin.x + rect.size.width + 5, rect.origin.y + rect.size.height + 5),
+        CGPointMake(rect.origin.x + rect.size.width - 15, rect.origin.y +rect.size.height + 5)
+    };
+    CGContextAddLines(ctx, rightPointsB, 3);
+    CGContextStrokePath(ctx);
+}
 #pragma mark CDVBarcodeScannerOrientationDelegate
 
 - (BOOL)shouldAutorotate
