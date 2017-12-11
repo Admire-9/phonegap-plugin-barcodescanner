@@ -6,8 +6,11 @@
  * Copyright (c) 2011, IBM Corporation
  */
 
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <AssetsLibrary/AssetsLibrary.h>
+#import <AudioToolbox/AudioToolbox.h>
 
 //------------------------------------------------------------------------------
 // use the all-in-one version of zxing that we built
@@ -15,6 +18,9 @@
 #import "zxing-all-in-one.h"
 #import <Cordova/CDVPlugin.h>
 
+#define mainHeight     [[UIScreen mainScreen] bounds].size.height
+#define mainWidth      [[UIScreen mainScreen] bounds].size.width
+#define allTrim( object ) [object stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet] ]
 
 //------------------------------------------------------------------------------
 // Delegate to handle orientation functions
@@ -52,7 +58,7 @@
 //------------------------------------------------------------------------------
 // class that does the grunt work
 //------------------------------------------------------------------------------
-@interface CDVbcsProcessor : NSObject <AVCaptureMetadataOutputObjectsDelegate> {}
+@interface CDVbcsProcessor : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate> {}
 @property (nonatomic, retain) CDVBarcodeScanner*           plugin;
 @property (nonatomic, retain) NSString*                   callback;
 @property (nonatomic, retain) UIViewController*           parentViewController;
@@ -61,17 +67,14 @@
 @property (nonatomic, retain) AVCaptureVideoPreviewLayer* previewLayer;
 @property (nonatomic, retain) NSString*                   alternateXib;
 @property (nonatomic, retain) NSMutableArray*             results;
-@property (nonatomic, retain) NSString*                   formats;
+
 @property (nonatomic)         BOOL                        is1D;
 @property (nonatomic)         BOOL                        is2D;
 @property (nonatomic)         BOOL                        capturing;
 @property (nonatomic)         BOOL                        isFrontCamera;
-@property (nonatomic)         BOOL                        isShowFlipCameraButton;
-@property (nonatomic)         BOOL                        isShowTorchButton;
 @property (nonatomic)         BOOL                        isFlipped;
-@property (nonatomic)         BOOL                        isTransitionAnimated;
-@property (nonatomic)         BOOL                        isSuccessBeepEnabled;
 
+#define Color [UIColor colorWithRed:237/255.0 green:82/255.0 blue:41/255.0 alpha:1]
 
 - (id)initWithPlugin:(CDVBarcodeScanner*)plugin callback:(NSString*)callback parentViewController:(UIViewController*)parentViewController alterateOverlayXib:(NSString *)alternateXib;
 - (void)scanBarcode;
@@ -104,13 +107,17 @@
 //------------------------------------------------------------------------------
 // view controller for the ui
 //------------------------------------------------------------------------------
-@interface CDVbcsViewController : UIViewController <CDVBarcodeScannerOrientationDelegate> {}
+@interface CDVbcsViewController : UIViewController <CDVBarcodeScannerOrientationDelegate, UIApplicationDelegate,UITextFieldDelegate> {}
 @property (nonatomic, retain) CDVbcsProcessor*  processor;
 @property (nonatomic, retain) NSString*        alternateXib;
 @property (nonatomic)         BOOL             shutterPressed;
 @property (nonatomic, retain) IBOutlet UIView* overlayView;
 // unsafe_unretained is equivalent to assign - used to prevent retain cycles in the property below
 @property (nonatomic, unsafe_unretained) id orientationDelegate;
+@property (strong, nonatomic) UIImageView*     imgLine;
+@property (nonatomic, assign) CGRect          cutRect;
+@property (nonatomic, retain) UITextField*     textField;
+
 
 - (id)initWithProcessor:(CDVbcsProcessor*)processor alternateOverlay:(NSString *)alternateXib;
 - (void)startCapturing;
@@ -118,8 +125,6 @@
 - (UIImage*)buildReticleImage;
 - (void)shutterButtonPressed;
 - (IBAction)cancelButtonPressed:(id)sender;
-- (IBAction)flipCameraButtonPressed:(id)sender;
-- (IBAction)torchButtonPressed:(id)sender;
 
 @end
 
@@ -131,84 +136,43 @@
 //--------------------------------------------------------------------------
 - (NSString*)isScanNotPossible {
     NSString* result = nil;
-
+    
     Class aClass = NSClassFromString(@"AVCaptureSession");
     if (aClass == nil) {
         return @"AVFoundation Framework not available";
     }
-
+    
     return result;
 }
-
--(BOOL)notHasPermission
-{
-    AVAuthorizationStatus authStatus = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
-    return (authStatus == AVAuthorizationStatusDenied ||
-            authStatus == AVAuthorizationStatusRestricted);
-}
-
-
 
 //--------------------------------------------------------------------------
 - (void)scan:(CDVInvokedUrlCommand*)command {
     CDVbcsProcessor* processor;
     NSString*       callback;
     NSString*       capabilityError;
-
+    
     callback = command.callbackId;
-
-    NSDictionary* options;
-    if (command.arguments.count == 0) {
-      options = [NSDictionary dictionary];
-    } else {
-      options = command.arguments[0];
-    }
-
-    BOOL preferFrontCamera = [options[@"preferFrontCamera"] boolValue];
-    BOOL showFlipCameraButton = [options[@"showFlipCameraButton"] boolValue];
-    BOOL showTorchButton = [options[@"showTorchButton"] boolValue];
-    BOOL disableAnimations = [options[@"disableAnimations"] boolValue];
-    BOOL disableSuccessBeep = [options[@"disableSuccessBeep"] boolValue];
-
+    
     // We allow the user to define an alternate xib file for loading the overlay.
-    NSString *overlayXib = options[@"overlayXib"];
-
+    NSString *overlayXib = nil;
+    if ( [command.arguments count] >= 1 )
+    {
+        overlayXib = [command.arguments objectAtIndex:0];
+    }
+    
     capabilityError = [self isScanNotPossible];
     if (capabilityError) {
         [self returnError:capabilityError callback:callback];
         return;
-    } else if ([self notHasPermission]) {
-        NSString * error = NSLocalizedString(@"Access to the camera has been prohibited; please enable it in the Settings app to continue.",nil);
-        [self returnError:error callback:callback];
-        return;
     }
-
-    processor = [[[CDVbcsProcessor alloc]
-                initWithPlugin:self
-                      callback:callback
-          parentViewController:self.viewController
-            alterateOverlayXib:overlayXib
-            ] autorelease];
+    
+    processor = [[CDVbcsProcessor alloc]
+                 initWithPlugin:self
+                 callback:callback
+                 parentViewController:self.viewController
+                 alterateOverlayXib:overlayXib
+                 ];
     // queue [processor scanBarcode] to run on the event loop
-
-    if (preferFrontCamera) {
-      processor.isFrontCamera = true;
-    }
-
-    if (showFlipCameraButton) {
-      processor.isShowFlipCameraButton = true;
-    }
-
-    if (showTorchButton) {
-      processor.isShowTorchButton = true;
-    }
-
-    processor.isSuccessBeepEnabled = !disableSuccessBeep;
-
-    processor.isTransitionAnimated = !disableAnimations;
-
-    processor.formats = options[@"formats"];
-
     [processor performSelector:@selector(scanBarcode) withObject:nil afterDelay:0];
 }
 
@@ -216,17 +180,17 @@
 - (void)encode:(CDVInvokedUrlCommand*)command {
     if([command.arguments count] < 1)
         [self returnError:@"Too few arguments!" callback:command.callbackId];
-
+    
     CDVqrProcessor* processor;
     NSString*       callback;
     callback = command.callbackId;
-
+    
     processor = [[CDVqrProcessor alloc]
                  initWithPlugin:self
                  callback:callback
                  stringToEncode: command.arguments[0][@"data"]
                  ];
-
+    
     [processor retain];
     [processor retain];
     [processor retain];
@@ -236,26 +200,26 @@
 
 - (void)returnImage:(NSString*)filePath format:(NSString*)format callback:(NSString*)callback{
     NSMutableDictionary* resultDict = [[[NSMutableDictionary alloc] init] autorelease];
-    resultDict[@"format"] = format;
-    resultDict[@"file"] = filePath;
-
+    [resultDict setObject:format forKey:@"format"];
+    [resultDict setObject:filePath forKey:@"file"];
+    
     CDVPluginResult* result = [CDVPluginResult
                                resultWithStatus: CDVCommandStatus_OK
                                messageAsDictionary:resultDict
                                ];
-
+    
     [[self commandDelegate] sendPluginResult:result callbackId:callback];
 }
 
 //--------------------------------------------------------------------------
 - (void)returnSuccess:(NSString*)scannedText format:(NSString*)format cancelled:(BOOL)cancelled flipped:(BOOL)flipped callback:(NSString*)callback{
-    NSNumber* cancelledNumber = @(cancelled ? 1 : 0);
-
-    NSMutableDictionary* resultDict = [[NSMutableDictionary new] autorelease];
-    resultDict[@"text"] = scannedText;
-    resultDict[@"format"] = format;
-    resultDict[@"cancelled"] = cancelledNumber;
-
+    NSNumber* cancelledNumber = [NSNumber numberWithInt:(cancelled?1:0)];
+    
+    NSMutableDictionary* resultDict = [[NSMutableDictionary alloc] init];
+    [resultDict setObject:scannedText     forKey:@"text"];
+    [resultDict setObject:format          forKey:@"format"];
+    [resultDict setObject:cancelledNumber forKey:@"cancelled"];
+    
     CDVPluginResult* result = [CDVPluginResult
                                resultWithStatus: CDVCommandStatus_OK
                                messageAsDictionary: resultDict
@@ -269,7 +233,7 @@
                                resultWithStatus: CDVCommandStatus_ERROR
                                messageAsString: message
                                ];
-
+    
     [self.commandDelegate sendPluginResult:result callbackId:callback];
 }
 
@@ -301,20 +265,20 @@ parentViewController:(UIViewController*)parentViewController
   alterateOverlayXib:(NSString *)alternateXib {
     self = [super init];
     if (!self) return self;
-
+    
     self.plugin               = plugin;
     self.callback             = callback;
     self.parentViewController = parentViewController;
     self.alternateXib         = alternateXib;
-
+    
     self.is1D      = YES;
     self.is2D      = YES;
     self.capturing = NO;
-    self.results = [[NSMutableArray new] autorelease];
-
+    self.results = [NSMutableArray new];
+    
     CFURLRef soundFileURLRef  = CFBundleCopyResourceURL(CFBundleGetMainBundle(), CFSTR("CDVBarcodeScanner.bundle/beep"), CFSTR ("caf"), NULL);
     AudioServicesCreateSystemSoundID(soundFileURLRef, &_soundFileObject);
-
+    
     return self;
 }
 
@@ -328,18 +292,18 @@ parentViewController:(UIViewController*)parentViewController
     self.previewLayer = nil;
     self.alternateXib = nil;
     self.results = nil;
-
+    
     self.capturing = NO;
-
+    
     AudioServicesRemoveSystemSoundCompletion(_soundFileObject);
     AudioServicesDisposeSystemSoundID(_soundFileObject);
-
+    
     [super dealloc];
 }
 
 //--------------------------------------------------------------------------
 - (void)scanBarcode {
-
+    
 //    self.captureSession = nil;
 //    self.previewLayer = nil;
     NSString* errorMessage = [self setUpCaptureSession];
@@ -347,11 +311,11 @@ parentViewController:(UIViewController*)parentViewController
         [self barcodeScanFailed:errorMessage];
         return;
     }
-
-    self.viewController = [[[CDVbcsViewController alloc] initWithProcessor: self alternateOverlay:self.alternateXib] autorelease];
+    
+    self.viewController = [[CDVbcsViewController alloc] initWithProcessor: self alternateOverlay:self.alternateXib];
     // here we set the orientation delegate to the MainViewController of the app (orientation controlled in the Project Settings)
     self.viewController.orientationDelegate = self.plugin.viewController;
-
+    
     // delayed [self openDialog];
     [self performSelector:@selector(openDialog) withObject:nil afterDelay:1];
 }
@@ -360,16 +324,16 @@ parentViewController:(UIViewController*)parentViewController
 - (void)openDialog {
     [self.parentViewController
      presentViewController:self.viewController
-     animated:self.isTransitionAnimated completion:nil
+     animated:YES completion:nil
      ];
 }
 
 //--------------------------------------------------------------------------
-- (void)barcodeScanDone:(void (^)(void))callbackBlock {
+- (void)barcodeScanDone {
     self.capturing = NO;
     [self.captureSession stopRunning];
-    [self.parentViewController dismissViewControllerAnimated:self.isTransitionAnimated completion:callbackBlock];
-
+    [self.parentViewController dismissViewControllerAnimated:YES completion:nil];
+    
     // viewcontroller holding onto a reference to us, release them so they
     // will release us
     self.viewController = nil;
@@ -378,21 +342,21 @@ parentViewController:(UIViewController*)parentViewController
 //--------------------------------------------------------------------------
 - (BOOL)checkResult:(NSString *)result {
     [self.results addObject:result];
-
+    
     NSInteger treshold = 7;
-
+    
     if (self.results.count > treshold) {
         [self.results removeObjectAtIndex:0];
     }
-
+    
     if (self.results.count < treshold)
     {
         return NO;
     }
-
+    
     BOOL allEqual = YES;
-    NSString *compareString = self.results[0];
-
+    NSString *compareString = [self.results objectAtIndex:0];
+    
     for (NSString *aResult in self.results)
     {
         if (![compareString isEqualToString:aResult])
@@ -402,75 +366,60 @@ parentViewController:(UIViewController*)parentViewController
             break;
         }
     }
-
+    
     return allEqual;
 }
 
 //--------------------------------------------------------------------------
 - (void)barcodeScanSucceeded:(NSString*)text format:(NSString*)format {
     dispatch_sync(dispatch_get_main_queue(), ^{
-        if (self.isSuccessBeepEnabled) {
-            AudioServicesPlaySystemSound(_soundFileObject);
-        }
-        [self barcodeScanDone:^{
-            [self.plugin returnSuccess:text format:format cancelled:FALSE flipped:FALSE callback:self.callback];
-        }];
+        [self barcodeScanDone];
+        AudioServicesPlaySystemSound(_soundFileObject);
+        [self.plugin returnSuccess:text format:format cancelled:FALSE flipped:FALSE callback:self.callback];
     });
 }
 
 //--------------------------------------------------------------------------
 - (void)barcodeScanFailed:(NSString*)message {
-    dispatch_sync(dispatch_get_main_queue(), ^{
-        [self barcodeScanDone:^{
-            [self.plugin returnError:message callback:self.callback];
-        }];
-    });
+    [self barcodeScanDone];
+    [self.plugin returnError:message callback:self.callback];
 }
 
-//--------------------------------------------------------------------------
+//----------------update by ktios 2016-08-17----------------------------------------------------------
 - (void)barcodeScanCancelled {
-    [self barcodeScanDone:^{
-        [self.plugin returnSuccess:@"" format:@"" cancelled:TRUE flipped:self.isFlipped callback:self.callback];
-    }];
+    NSString* textValue = self.viewController.textField.text;
+    NSLog(@"textField value:%@", textValue);
+    [self barcodeScanDone];
+    if ([allTrim(textValue) length] > 0) {
+         [self.plugin returnSuccess:textValue format:@"" cancelled:TRUE flipped:self.isFlipped callback:self.callback];
+    } else {
+         [self.plugin returnSuccess:@"" format:@"" cancelled:TRUE flipped:self.isFlipped callback:self.callback];
+    }
+   
     if (self.isFlipped) {
         self.isFlipped = NO;
     }
 }
 
-- (void)flipCamera {
+
+- (void)flipCamera
+{
     self.isFlipped = YES;
     self.isFrontCamera = !self.isFrontCamera;
-    [self barcodeScanDone:^{
-        if (self.isFlipped) {
-            self.isFlipped = NO;
-        }
+    [self performSelector:@selector(barcodeScanCancelled) withObject:nil afterDelay:0];
     [self performSelector:@selector(scanBarcode) withObject:nil afterDelay:0.1];
-    }];
-} 
-
-- (void)toggleTorch {
-  AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
-  [device lockForConfiguration:nil];
-  if (device.flashActive) {
-    [device setTorchMode:AVCaptureTorchModeOff];
-    [device setFlashMode:AVCaptureFlashModeOff];
-  } else {
-    [device setTorchModeOnWithLevel:AVCaptureMaxAvailableTorchLevel error:nil];
-    [device setFlashMode:AVCaptureFlashModeOn];
-  }
-  [device unlockForConfiguration];
 }
 
 //--------------------------------------------------------------------------
 - (NSString*)setUpCaptureSession {
     NSError* error = nil;
-
-    AVCaptureSession* captureSession = [[[AVCaptureSession alloc] init] autorelease];
+    
+    AVCaptureSession* captureSession = [[AVCaptureSession alloc] init];
     self.captureSession = captureSession;
-
-       AVCaptureDevice* __block device = nil;
+    
+    AVCaptureDevice* __block device = nil;
     if (self.isFrontCamera) {
-
+        
         NSArray* devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
         [devices enumerateObjectsUsingBlock:^(AVCaptureDevice *obj, NSUInteger idx, BOOL *stop) {
             if (obj.position == AVCaptureDevicePositionFront) {
@@ -480,44 +429,39 @@ parentViewController:(UIViewController*)parentViewController
     } else {
         device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         if (!device) return @"unable to obtain video capture device";
-
+        
     }
-
-    // set focus params if available to improve focusing
-    [device lockForConfiguration:&error];
-    if (error == nil) {
-        if([device isFocusModeSupported:AVCaptureFocusModeContinuousAutoFocus]) {
-            [device setFocusMode:AVCaptureFocusModeContinuousAutoFocus];
-        }
-        if([device isAutoFocusRangeRestrictionSupported]) {
-            [device setAutoFocusRangeRestriction:AVCaptureAutoFocusRangeRestrictionNear];
-        }
-    }
-    [device unlockForConfiguration];
-
+    
+    
     AVCaptureDeviceInput* input = [AVCaptureDeviceInput deviceInputWithDevice:device error:&error];
     if (!input) return @"unable to obtain video capture device input";
-
-    AVCaptureMetadataOutput* output = [[[AVCaptureMetadataOutput alloc] init] autorelease];
+    
+    AVCaptureVideoDataOutput* output = [[AVCaptureVideoDataOutput alloc] init];
     if (!output) return @"unable to obtain video capture output";
-
-    [output setMetadataObjectsDelegate:self queue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0)];
-
-    if ([captureSession canSetSessionPreset:AVCaptureSessionPresetHigh]) {
-      captureSession.sessionPreset = AVCaptureSessionPresetHigh;
-    } else if ([captureSession canSetSessionPreset:AVCaptureSessionPresetMedium]) {
-      captureSession.sessionPreset = AVCaptureSessionPresetMedium;
-    } else {
-      return @"unable to preset high nor medium quality video capture";
+    
+    NSDictionary* videoOutputSettings = [NSDictionary
+                                         dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_32BGRA]
+                                         forKey:(id)kCVPixelBufferPixelFormatTypeKey
+                                         ];
+    
+    output.alwaysDiscardsLateVideoFrames = YES;
+    output.videoSettings = videoOutputSettings;
+    
+    [output setSampleBufferDelegate:self queue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0)];
+    
+    if (![captureSession canSetSessionPreset:AVCaptureSessionPresetHigh]) {
+        return @"unable to preset high quality video capture";
     }
-
+    
+    captureSession.sessionPreset = AVCaptureSessionPresetHigh;
+    
     if ([captureSession canAddInput:input]) {
         [captureSession addInput:input];
     }
     else {
         return @"unable to add video capture device input to session";
     }
-
+    
     if ([captureSession canAddOutput:output]) {
         [captureSession addOutput:output];
     }
@@ -525,33 +469,30 @@ parentViewController:(UIViewController*)parentViewController
         return @"unable to add video capture output to session";
     }
     
-    [output setMetadataObjectTypes:[self formatObjectTypes]];
-
     // setup capture preview layer
     self.previewLayer = [AVCaptureVideoPreviewLayer layerWithSession:captureSession];
-    self.previewLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
-
+    
     // run on next event loop pass [captureSession startRunning]
     [captureSession performSelector:@selector(startRunning) withObject:nil afterDelay:0];
-
+    
     return nil;
 }
 
 //--------------------------------------------------------------------------
 // this method gets sent the captured frames
 //--------------------------------------------------------------------------
-- (void)captureOutput:(AVCaptureOutput*)captureOutput didOutputMetadataObjects:(NSArray *)metadataObjects fromConnection:(AVCaptureConnection*)connection {
-
+- (void)captureOutput:(AVCaptureOutput*)captureOutput didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer fromConnection:(AVCaptureConnection*)connection {
+    
     if (!self.capturing) return;
-
+    
 #if USE_SHUTTER
     if (!self.viewController.shutterPressed) return;
     self.viewController.shutterPressed = NO;
-
+    
     UIView* flashView = [[UIView alloc] initWithFrame:self.viewController.view.frame];
     [flashView setBackgroundColor:[UIColor whiteColor]];
     [self.viewController.view.window addSubview:flashView];
-
+    
     [UIView
      animateWithDuration:.4f
      animations:^{
@@ -561,29 +502,74 @@ parentViewController:(UIViewController*)parentViewController
          [flashView removeFromSuperview];
      }
      ];
-
+    
     //         [self dumpImage: [[self getImageFromSample:sampleBuffer] autorelease]];
 #endif
-
-
+    
+    
+    using namespace zxing;
+    
+    // LuminanceSource is pretty dumb; we have to give it a pointer to
+    // a byte array, but then can't get it back out again.  We need to
+    // get it back to free it.  Saving it in imageBytes.
+    uint8_t* imageBytes;
+    
+    //        NSTimeInterval timeStart = [NSDate timeIntervalSinceReferenceDate];
+    
     try {
-        // This will bring in multiple entities if there are multiple 2D codes in frame.
-        for (AVMetadataObject *metaData in metadataObjects) {
-            AVMetadataMachineReadableCodeObject* code = (AVMetadataMachineReadableCodeObject*)[self.previewLayer transformedMetadataObjectForMetadataObject:(AVMetadataMachineReadableCodeObject*)metaData];
-
-            if ([self checkResult:code.stringValue]) {
-                [self barcodeScanSucceeded:code.stringValue format:[self formatStringFromMetadata:code]];
-            }
+        DecodeHints decodeHints;
+        decodeHints.addFormat(BarcodeFormat_QR_CODE);
+        decodeHints.addFormat(BarcodeFormat_DATA_MATRIX);
+        decodeHints.addFormat(BarcodeFormat_UPC_E);
+        decodeHints.addFormat(BarcodeFormat_UPC_A);
+        decodeHints.addFormat(BarcodeFormat_EAN_8);
+        decodeHints.addFormat(BarcodeFormat_EAN_13);
+        decodeHints.addFormat(BarcodeFormat_CODE_128);
+        decodeHints.addFormat(BarcodeFormat_CODE_39);
+        decodeHints.addFormat(BarcodeFormat_ITF);
+        
+        // here's the meat of the decode process
+        Ref<LuminanceSource>   luminanceSource   ([self getLuminanceSourceFromSample: sampleBuffer imageBytes:&imageBytes]);
+        //            [self dumpImage: [[self getImageFromLuminanceSource:luminanceSource] autorelease]];
+        Ref<Binarizer>         binarizer         (new HybridBinarizer(luminanceSource));
+        Ref<BinaryBitmap>      bitmap            (new BinaryBitmap(binarizer));
+        Ref<MultiFormatReader> reader            (new MultiFormatReader());
+        Ref<Result>            result            (reader->decode(bitmap, decodeHints));
+        Ref<String>            resultText        (result->getText());
+        BarcodeFormat          formatVal =       result->getBarcodeFormat();
+        NSString*              format    =       [self formatStringFrom:formatVal];
+        
+        
+        const char* cString      = resultText->getText().c_str();
+        NSString*   resultString = [[NSString alloc] initWithCString:cString encoding:NSUTF8StringEncoding];
+        
+        if ([self checkResult:resultString]) {
+            [self barcodeScanSucceeded:resultString format:format];
         }
+        
+        
+        
+    }
+    catch (zxing::ReaderException &rex) {
+        //            NSString *message = [[[NSString alloc] initWithCString:rex.what() encoding:NSUTF8StringEncoding] autorelease];
+        //            NSLog(@"decoding: ReaderException: %@", message);
+    }
+    catch (zxing::IllegalArgumentException &iex) {
+        //            NSString *message = [[[NSString alloc] initWithCString:iex.what() encoding:NSUTF8StringEncoding] autorelease];
+        //            NSLog(@"decoding: IllegalArgumentException: %@", message);
     }
     catch (...) {
         //            NSLog(@"decoding: unknown exception");
         //            [self barcodeScanFailed:@"unknown exception decoding barcode"];
     }
-
+    
     //        NSTimeInterval timeElapsed  = [NSDate timeIntervalSinceReferenceDate] - timeStart;
     //        NSLog(@"decoding completed in %dms", (int) (timeElapsed * 1000));
-
+    
+    // free the buffer behind the LuminanceSource
+    if (imageBytes) {
+        free(imageBytes);
+    }
 }
 
 //--------------------------------------------------------------------------
@@ -603,79 +589,33 @@ parentViewController:(UIViewController*)parentViewController
 }
 
 //--------------------------------------------------------------------------
-// convert metadata object information to barcode format string
-//--------------------------------------------------------------------------
-- (NSString*)formatStringFromMetadata:(AVMetadataMachineReadableCodeObject*)format {
-    if (format.type == AVMetadataObjectTypeQRCode)          return @"QR_CODE";
-    if (format.type == AVMetadataObjectTypeAztecCode)       return @"AZTEC";
-    if (format.type == AVMetadataObjectTypeDataMatrixCode)  return @"DATA_MATRIX";
-    if (format.type == AVMetadataObjectTypeUPCECode)        return @"UPC_E";
-    // According to Apple documentation, UPC_A is EAN13 with a leading 0.
-    if (format.type == AVMetadataObjectTypeEAN13Code && [format.stringValue characterAtIndex:0] == '0') return @"UPC_A";
-    if (format.type == AVMetadataObjectTypeEAN8Code)        return @"EAN_8";
-    if (format.type == AVMetadataObjectTypeEAN13Code)       return @"EAN_13";
-    if (format.type == AVMetadataObjectTypeCode128Code)     return @"CODE_128";
-    if (format.type == AVMetadataObjectTypeCode93Code)      return @"CODE_93";
-    if (format.type == AVMetadataObjectTypeCode39Code)      return @"CODE_39";
-    if (format.type == AVMetadataObjectTypeITF14Code)          return @"ITF";
-    if (format.type == AVMetadataObjectTypePDF417Code)      return @"PDF_417";
-    return @"???";
-}
-
-//--------------------------------------------------------------------------
-// convert string formats to metadata objects
-//--------------------------------------------------------------------------
-- (NSArray*) formatObjectTypes {
-    NSArray *supportedFormats = nil;
-    if (self.formats != nil) {
-        supportedFormats = [self.formats componentsSeparatedByString:@","];
-    }
-    
-    NSMutableArray * formatObjectTypes = [NSMutableArray array];
-    
-    if (self.formats == nil || [supportedFormats containsObject:@"QR_CODE"]) [formatObjectTypes addObject:AVMetadataObjectTypeQRCode];
-    if (self.formats == nil || [supportedFormats containsObject:@"AZTEC"]) [formatObjectTypes addObject:AVMetadataObjectTypeAztecCode];
-    if (self.formats == nil || [supportedFormats containsObject:@"DATA_MATRIX"]) [formatObjectTypes addObject:AVMetadataObjectTypeDataMatrixCode];
-    if (self.formats == nil || [supportedFormats containsObject:@"UPC_E"]) [formatObjectTypes addObject:AVMetadataObjectTypeUPCECode];
-    if (self.formats == nil || [supportedFormats containsObject:@"EAN_8"]) [formatObjectTypes addObject:AVMetadataObjectTypeEAN8Code];
-    if (self.formats == nil || [supportedFormats containsObject:@"EAN_13"]) [formatObjectTypes addObject:AVMetadataObjectTypeEAN13Code];
-    if (self.formats == nil || [supportedFormats containsObject:@"CODE_128"]) [formatObjectTypes addObject:AVMetadataObjectTypeCode128Code];
-    if (self.formats == nil || [supportedFormats containsObject:@"CODE_93"]) [formatObjectTypes addObject:AVMetadataObjectTypeCode93Code];
-    if (self.formats == nil || [supportedFormats containsObject:@"CODE_39"]) [formatObjectTypes addObject:AVMetadataObjectTypeCode39Code];
-    if (self.formats == nil || [supportedFormats containsObject:@"ITF"]) [formatObjectTypes addObject:AVMetadataObjectTypeITF14Code];
-    if (self.formats == nil || [supportedFormats containsObject:@"PDF_417"]) [formatObjectTypes addObject:AVMetadataObjectTypePDF417Code];
-    
-    return formatObjectTypes;
-}
-
-//--------------------------------------------------------------------------
 // convert capture's sample buffer (scanned picture) into the thing that
 // zxing needs.
 //--------------------------------------------------------------------------
 - (zxing::Ref<zxing::LuminanceSource>) getLuminanceSourceFromSample:(CMSampleBufferRef)sampleBuffer imageBytes:(uint8_t**)ptr {
     CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
     CVPixelBufferLockBaseAddress(imageBuffer, 0);
-
+    
     size_t   bytesPerRow =            CVPixelBufferGetBytesPerRow(imageBuffer);
     size_t   width       =            CVPixelBufferGetWidth(imageBuffer);
     size_t   height      =            CVPixelBufferGetHeight(imageBuffer);
     uint8_t* baseAddress = (uint8_t*) CVPixelBufferGetBaseAddress(imageBuffer);
-
+    
     // only going to get 90% of the min(width,height) of the captured image
     size_t    greyWidth  = 9 * MIN(width, height) / 10;
     uint8_t*  greyData   = (uint8_t*) malloc(greyWidth * greyWidth);
-
+    
     // remember this pointer so we can free it later
     *ptr = greyData;
-
+    
     if (!greyData) {
         CVPixelBufferUnlockBaseAddress(imageBuffer,0);
         throw new zxing::ReaderException("out of memory");
     }
-
+    
     size_t offsetX = (width  - greyWidth) / 2;
     size_t offsetY = (height - greyWidth) / 2;
-
+    
     // pixel-by-pixel ...
     for (size_t i=0; i<greyWidth; i++) {
         for (size_t j=0; j<greyWidth; j++) {
@@ -684,27 +624,27 @@ parentViewController:(UIViewController*)parentViewController
             // in this case, there's a rotation taking place
             size_t ni = greyWidth-j;
             size_t nj = i;
-
+            
             size_t baseOffset = (j+offsetY)*bytesPerRow + (i + offsetX)*4;
-
+            
             // convert from color to grayscale
             // http://en.wikipedia.org/wiki/Grayscale#Converting_color_to_grayscale
             size_t value = 0.11 * baseAddress[baseOffset] +
             0.59 * baseAddress[baseOffset + 1] +
             0.30 * baseAddress[baseOffset + 2];
-
+            
             greyData[nj*greyWidth + ni] = value;
         }
     }
-
+    
     CVPixelBufferUnlockBaseAddress(imageBuffer,0);
-
+    
     using namespace zxing;
-
+    
     Ref<LuminanceSource> luminanceSource (
                                           new GreyscaleLuminanceSource(greyData, (int)greyWidth, (int)greyWidth, 0, 0, (int)greyWidth, (int)greyWidth)
                                           );
-
+    
     return luminanceSource;
 }
 
@@ -720,15 +660,15 @@ parentViewController:(UIViewController*)parentViewController
                                                  colorSpace,
                                                  kCGImageAlphaNone
                                                  );
-
+    
     CGImageRef cgImage = CGBitmapContextCreateImage(context);
     UIImage*   image   = [[UIImage alloc] initWithCGImage:cgImage];
-
+    
     CGContextRelease(context);
     CGColorSpaceRelease(colorSpace);
     CGImageRelease(cgImage);
     free(bytes);
-
+    
     return image;
 }
 
@@ -738,17 +678,17 @@ parentViewController:(UIViewController*)parentViewController
 - (UIImage*)getImageFromSample:(CMSampleBufferRef)sampleBuffer {
     CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
     CVPixelBufferLockBaseAddress(imageBuffer, 0);
-
+    
     size_t bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer);
     size_t width       = CVPixelBufferGetWidth(imageBuffer);
     size_t height      = CVPixelBufferGetHeight(imageBuffer);
-
+    
     uint8_t* baseAddress    = (uint8_t*) CVPixelBufferGetBaseAddress(imageBuffer);
     int      length         = (int)(height * bytesPerRow);
     uint8_t* newBaseAddress = (uint8_t*) malloc(length);
     memcpy(newBaseAddress, baseAddress, length);
     baseAddress = newBaseAddress;
-
+    
     CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
     CGContextRef context = CGBitmapContextCreate(
                                                  baseAddress,
@@ -756,17 +696,17 @@ parentViewController:(UIViewController*)parentViewController
                                                  colorSpace,
                                                  kCGBitmapByteOrder32Little | kCGImageAlphaNoneSkipFirst
                                                  );
-
+    
     CGImageRef cgImage = CGBitmapContextCreateImage(context);
     UIImage*   image   = [[UIImage alloc] initWithCGImage:cgImage];
-
+    
     CVPixelBufferUnlockBaseAddress(imageBuffer,0);
     CGContextRelease(context);
     CGColorSpaceRelease(colorSpace);
     CGImageRelease(cgImage);
-
+    
     free(baseAddress);
-
+    
     return image;
 }
 
@@ -775,7 +715,7 @@ parentViewController:(UIViewController*)parentViewController
 //--------------------------------------------------------------------------
 - (void)dumpImage:(UIImage*)image {
     NSLog(@"writing image to library: %dx%d", (int)image.size.width, (int)image.size.height);
-    ALAssetsLibrary* assetsLibrary = [[[ALAssetsLibrary alloc] init] autorelease];
+    ALAssetsLibrary* assetsLibrary = [[ALAssetsLibrary alloc] init];
     [assetsLibrary
      writeImageToSavedPhotosAlbum:image.CGImage
      orientation:ALAssetOrientationUp
@@ -800,12 +740,12 @@ parentViewController:(UIViewController*)parentViewController
 - (id)initWithPlugin:(CDVBarcodeScanner*)plugin callback:(NSString*)callback stringToEncode:(NSString*)stringToEncode{
     self = [super init];
     if (!self) return self;
-
+    
     self.plugin          = plugin;
     self.callback        = callback;
     self.stringToEncode  = stringToEncode;
     self.size            = 300;
-
+    
     return self;
 }
 
@@ -814,7 +754,7 @@ parentViewController:(UIViewController*)parentViewController
     self.plugin = nil;
     self.callback = nil;
     self.stringToEncode = nil;
-
+    
     [super dealloc];
 }
 //--------------------------------------------------------------------------
@@ -822,22 +762,22 @@ parentViewController:(UIViewController*)parentViewController
     /* setup qr filter */
     CIFilter *filter = [CIFilter filterWithName:@"CIQRCodeGenerator"];
     [filter setDefaults];
-
+    
     /* set filter's input message
      * the encoding string has to be convert to a UTF-8 encoded NSData object */
     [filter setValue:[self.stringToEncode dataUsingEncoding:NSUTF8StringEncoding]
               forKey:@"inputMessage"];
-
+    
     /* on ios >= 7.0  set low image error correction level */
     if (floor(NSFoundationVersionNumber) >= NSFoundationVersionNumber_iOS_7_0)
         [filter setValue:@"L" forKey:@"inputCorrectionLevel"];
-
+    
     /* prepare cgImage */
     CIImage *outputImage = [filter outputImage];
     CIContext *context = [CIContext contextWithOptions:nil];
     CGImageRef cgImage = [context createCGImage:outputImage
                                        fromRect:[outputImage extent]];
-
+    
     /* returned qr code image */
     UIImage *qrImage = [UIImage imageWithCGImage:cgImage
                                            scale:1.
@@ -845,23 +785,22 @@ parentViewController:(UIViewController*)parentViewController
     /* resize generated image */
     CGFloat width = _size;
     CGFloat height = _size;
-
+    
     UIGraphicsBeginImageContext(CGSizeMake(width, height));
-
+    
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     CGContextSetInterpolationQuality(ctx, kCGInterpolationNone);
     [qrImage drawInRect:CGRectMake(0, 0, width, height)];
     qrImage = UIGraphicsGetImageFromCurrentImageContext();
-
+    
     /* clean up */
     UIGraphicsEndImageContext();
     CGImageRelease(cgImage);
-
+    
     /* save image to file */
-    NSString* fileName = [[[NSProcessInfo processInfo] globallyUniqueString] stringByAppendingString:@".jpg"];
-    NSString* filePath = [NSTemporaryDirectory() stringByAppendingPathComponent:fileName];
+    NSString* filePath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"tmpqrcode.jpeg"];
     [UIImageJPEGRepresentation(qrImage, 1.0) writeToFile:filePath atomically:YES];
-
+    
     /* return file path back to cordova */
     [self.plugin returnImage:filePath format:@"QR_CODE" callback: self.callback];
 }
@@ -875,12 +814,13 @@ parentViewController:(UIViewController*)parentViewController
 @synthesize shutterPressed = _shutterPressed;
 @synthesize alternateXib   = _alternateXib;
 @synthesize overlayView    = _overlayView;
+@synthesize textField      = _textField;
 
 //--------------------------------------------------------------------------
 - (id)initWithProcessor:(CDVbcsProcessor*)processor alternateOverlay:(NSString *)alternateXib {
     self = [super init];
     if (!self) return self;
-
+    
     self.processor = processor;
     self.shutterPressed = NO;
     self.alternateXib = alternateXib;
@@ -901,36 +841,210 @@ parentViewController:(UIViewController*)parentViewController
 //--------------------------------------------------------------------------
 - (void)loadView {
     self.view = [[UIView alloc] initWithFrame: self.processor.parentViewController.view.frame];
-
     // setup capture preview layer
     AVCaptureVideoPreviewLayer* previewLayer = self.processor.previewLayer;
     previewLayer.frame = self.view.bounds;
     previewLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
-
+    
     if ([previewLayer.connection isVideoOrientationSupported]) {
         [previewLayer.connection setVideoOrientation:AVCaptureVideoOrientationPortrait];
     }
-
+    
     [self.view.layer insertSublayer:previewLayer below:[[self.view.layer sublayers] objectAtIndex:0]];
+    
+    //[self.view addSubview:[self buildOverlayView]];
+    
+    //NSLog(@"view size:%@",NSStringFromCGSize(self.buildOverlayView.bounds.size));
+    
+//    _textView = [[UITextView alloc] initWithFrame:CGRectMake(CGRectGetMidX(self.view.bounds) - 115, 60, 230, 40)];
+//    [self.view addSubview:_textView];
+    
+    // 画出扫描框
+    [self drawScanLayer];
 
-    [self.view addSubview:[self buildOverlayView]];
+    // 画出用作动画的横线
+    [self drawLine];
+    
+    // 提示信息
+    [self drawLabelTip];
+    
+    // 结束按钮
+    UIButton* btn = [UIButton buttonWithType:UIButtonTypeRoundedRect];
+    btn.frame = CGRectMake(self.cutRect.origin.x + self.cutRect.size.width/2 - 60, self.cutRect.origin.y + self.cutRect.size.height + 40, 120, 40);
+    btn.backgroundColor = [UIColor orangeColor];
+    btn.layer.cornerRadius = 10;
+    [btn setTitle:@"结束" forState:UIControlStateNormal];
+    SEL eventHander = @selector(cancelButtonPressed:);
+    [btn addTarget:self action:eventHander forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:btn];
+    
+    // 文本输入框
+    [self drawTextField];
+    
+    }
+
+// ----------------文本输入框---------------
+- (void) drawTextField
+{
+    // 文本输入框
+    _textField = [[UITextField alloc] initWithFrame:CGRectMake(CGRectGetMidX(self.view.bounds) - 115, 80, 230, 40)];
+    [self.view addSubview:_textField];
+    _textField.backgroundColor = [UIColor whiteColor];
+    _textField.placeholder = @"手工输入";
+    // 文本信息剧中显示
+    _textField.textAlignment = NSTextAlignmentCenter;
+    _textField.keyboardType = UIKeyboardTypeDefault;
+    //textField.returnKeyType = UIReturnKeyGo;
+    // 键盘回收设置
+    _textField.delegate = self;
 }
 
-//--------------------------------------------------------------------------
+
+//------------键盘回收------------------
+- (BOOL)textFieldShouldReturn:(UITextField *)textField
+{
+    //回收键盘,取消第一响应者
+    [textField resignFirstResponder];
+    
+    return YES;
+    
+}
+
+//- (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
+//    [_textField resignFirstResponder];
+//}
+
+
+//------------ 扫描框------------------
+- (void) drawScanLayer
+{
+    // 中间空心洞的区域
+    self.cutRect = CGRectMake(CGRectGetMidX(self.view.bounds) - 115,
+                              CGRectGetMidY(self.view.bounds) - 115 - 30,
+                              230,
+                              230);
+    
+    UIBezierPath *path = [UIBezierPath bezierPathWithRect:self.view.bounds];
+    // 挖空心洞 显示区域
+    UIBezierPath *cutRectPath = [UIBezierPath bezierPathWithRect:self.cutRect];
+    // 将circlePath添加到path上
+    [path appendPath:cutRectPath];
+    path.usesEvenOddFillRule = YES;
+    
+    CAShapeLayer *fillLayer = [CAShapeLayer layer];
+    fillLayer.path = path.CGPath;
+    fillLayer.fillRule = kCAFillRuleEvenOdd;
+    fillLayer.opacity = 0.5;//透明度
+    fillLayer.backgroundColor = [UIColor lightGrayColor].CGColor;
+    [self.view.layer addSublayer:fillLayer];
+    
+    // 边界校准线
+    const CGFloat lineWidth = 1;
+    UIBezierPath *linePath = [UIBezierPath bezierPathWithRect:CGRectMake(self.cutRect.origin.x - lineWidth,
+        self.cutRect.origin.y - lineWidth, self.cutRect.size.width / 8.0, lineWidth)];
+    // 追加路径
+    [linePath appendPath:[UIBezierPath bezierPathWithRect:CGRectMake(self.cutRect.origin.x - lineWidth,
+        self.cutRect.origin.y - lineWidth, lineWidth, self.cutRect.size.height / 8.0)]];
+    
+    [linePath appendPath:[UIBezierPath bezierPathWithRect:CGRectMake(self.cutRect.origin.x + 230 - self.cutRect.size.width / 8.0 + lineWidth, self.cutRect.origin.y - lineWidth, self.cutRect.size.width / 8.0, lineWidth)]];
+    
+    [linePath appendPath:[UIBezierPath bezierPathWithRect:CGRectMake(self.cutRect.origin.x + 230,
+        self.cutRect.origin.y - lineWidth, lineWidth, self.cutRect.size.height / 8.0)]];
+    
+    [linePath appendPath:[UIBezierPath bezierPathWithRect:CGRectMake(self.cutRect.origin.x - lineWidth,
+        self.cutRect.origin.y + 230 - self.cutRect.size.height / 8.0 + lineWidth, lineWidth,
+                                                                     self.cutRect.size.height / 8.0)]];
+    
+    [linePath appendPath:[UIBezierPath bezierPathWithRect:CGRectMake(self.cutRect.origin.x - lineWidth,
+                                                                     self.cutRect.origin.y + 230,
+                                                                     self.cutRect.size.width / 8.0,
+                                                                     lineWidth)]];
+    
+    [linePath appendPath:[UIBezierPath bezierPathWithRect:CGRectMake(self.cutRect.origin.x + 230,
+        self.cutRect.origin.y + 230 - self.cutRect.size.height / 8.0 + lineWidth, lineWidth,
+                                                                     self.cutRect.size.height / 8.0)]];
+    
+    [linePath appendPath:[UIBezierPath bezierPathWithRect:CGRectMake(self.cutRect.origin.x + 230 - self.cutRect.size.width / 8.0 + lineWidth, self.cutRect.origin.y + 230, self.cutRect.size.width / 8.0, lineWidth)]];
+    
+    CAShapeLayer *pathLayer = [CAShapeLayer layer];
+    pathLayer.path = linePath.CGPath;// 从贝塞尔曲线获取到形状
+    pathLayer.fillColor = Color.CGColor; // 闭环填充的颜色
+    //        pathLayer.lineCap       = kCALineCapSquare;               // 边缘线的类型
+    pathLayer.strokeColor = [UIColor orangeColor].CGColor; // 边缘线的颜色
+    //        pathLayer.lineWidth     = 4.0f;                           // 线条宽度
+    [self.view.layer addSublayer:pathLayer];
+}
+
+//-------------扫描线---------------
+- (void)drawLine
+{
+    //NSLog(@"画横线");
+    UIGraphicsBeginImageContext(CGSizeMake(mainWidth, 10));
+    UIBezierPath *path = [UIBezierPath bezierPath];
+    // 画出移动的横线
+    [path moveToPoint:CGPointMake(self.cutRect.origin.x , 5)];
+    [path addLineToPoint:CGPointMake(self.cutRect.origin.x + self.cutRect.size.width, 5)];
+    [[UIColor greenColor] setStroke];
+    [path setLineWidth:2];
+    [path stroke];
+    UIImage* im = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    _imgLine = [[UIImageView alloc] initWithImage: im];
+    // [_imgLine setBackgroundColor:[UIColor redColor]];
+    [self.view addSubview:_imgLine];
+}
+
+//--------------提示信息-----------------
+- (void)drawLabelTip
+{
+    UILabel *lblTip = [[UILabel alloc] initWithFrame:CGRectMake(0, self.cutRect.origin.y + self.cutRect.size.height + 10, mainWidth, 15)];
+    lblTip.text = @"将二维码放入框内,即可自动扫描";
+    lblTip.textColor = [UIColor whiteColor];
+    lblTip.font = [UIFont systemFontOfSize:13];
+    lblTip.textAlignment = NSTextAlignmentCenter;
+    [self.view addSubview:lblTip];
+}
+
+//---------------扫描动画--------------------
+- (void)scanAnimate
+{
+//    // 调整frame初始位置
+      _imgLine.frame = CGRectMake(0, self.cutRect.origin.y -2, mainWidth, 12);
+    // 执行动画
+    [UIView animateWithDuration:3 animations:^{
+        //NSLog(@"动画执行开始");
+        _imgLine.frame = CGRectMake(_imgLine.frame.origin.x, self.cutRect.origin.y + self.cutRect.size.height - 8, _imgLine.frame.size.width, _imgLine.frame.size.height);
+        //[_imgLine setBackgroundColor:[UIColor blueColor]];
+        
+    } completion:^(BOOL finished) {
+        //_imgLine.frame=CGRectMake(0,0,0,0);
+        //NSLog(@"动画执行完毕");
+        //NSLog(@"动画执行完毕:%id", finished);
+        if (finished) {
+            [self scanAnimate];
+        }
+        
+    }];
+}
+
+
+//-----------------update by ktios 2016-08-15---------------------------------------------------------
 - (void)viewWillAppear:(BOOL)animated {
-
+    
     // set video orientation to what the camera sees
-    self.processor.previewLayer.connection.videoOrientation = (AVCaptureVideoOrientation) [[UIApplication sharedApplication] statusBarOrientation];
-
+    self.processor.previewLayer.connection.videoOrientation = [[UIApplication sharedApplication] statusBarOrientation];
+    
     // this fixes the bug when the statusbar is landscape, and the preview layer
     // starts up in portrait (not filling the whole view)
     self.processor.previewLayer.frame = self.view.bounds;
+    
+    [self scanAnimate];
 }
 
 //--------------------------------------------------------------------------
 - (void)viewDidAppear:(BOOL)animated {
     [self startCapturing];
-
+    
     [super viewDidAppear:animated];
 }
 
@@ -940,7 +1054,7 @@ parentViewController:(UIViewController*)parentViewController
 }
 
 //--------------------------------------------------------------------------
-- (IBAction)shutterButtonPressed {
+- (void)shutterButtonPressed {
     self.shutterPressed = YES;
 }
 
@@ -949,49 +1063,35 @@ parentViewController:(UIViewController*)parentViewController
     [self.processor performSelector:@selector(barcodeScanCancelled) withObject:nil afterDelay:0];
 }
 
-- (IBAction)flipCameraButtonPressed:(id)sender
+- (void)flipCameraButtonPressed:(id)sender
 {
     [self.processor performSelector:@selector(flipCamera) withObject:nil afterDelay:0];
-}
-
-- (IBAction)torchButtonPressed:(id)sender
-{
-  [self.processor performSelector:@selector(toggleTorch) withObject:nil afterDelay:0];
 }
 
 //--------------------------------------------------------------------------
 - (UIView *)buildOverlayViewFromXib
 {
     [[NSBundle mainBundle] loadNibNamed:self.alternateXib owner:self options:NULL];
-
+    
     if ( self.overlayView == nil )
     {
         NSLog(@"%@", @"An error occurred loading the overlay xib.  It appears that the overlayView outlet is not set.");
         return nil;
     }
-	
-	self.overlayView.autoresizesSubviews = YES;
-    self.overlayView.autoresizingMask    = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    self.overlayView.opaque              = NO;
-	
-	CGRect bounds = self.view.bounds;
-    bounds = CGRectMake(0, 0, bounds.size.width, bounds.size.height);
-	
-	[self.overlayView setFrame:bounds];
-	
+    
     return self.overlayView;
 }
 
 //--------------------------------------------------------------------------
 - (UIView*)buildOverlayView {
-
+    
     if ( nil != self.alternateXib )
     {
         return [self buildOverlayViewFromXib];
     }
     CGRect bounds = self.view.bounds;
     bounds = CGRectMake(0, 0, bounds.size.width, bounds.size.height);
-
+    
     UIView* overlayView = [[UIView alloc] initWithFrame:bounds];
     overlayView.autoresizesSubviews = YES;
     overlayView.autoresizingMask    = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -999,111 +1099,86 @@ parentViewController:(UIViewController*)parentViewController
 
     UIToolbar* toolbar = [[UIToolbar alloc] init];
     toolbar.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-
-    id cancelButton = [[[UIBarButtonItem alloc]
+    
+    id cancelButton = [[UIBarButtonItem alloc]
                        initWithBarButtonSystemItem:UIBarButtonSystemItemCancel
                        target:(id)self
                        action:@selector(cancelButtonPressed:)
-                       ] autorelease];
-
-
-    id flexSpace = [[[UIBarButtonItem alloc]
+                       ];
+    
+    
+    id flexSpace = [[UIBarButtonItem alloc]
                     initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace
                     target:nil
                     action:nil
-                    ] autorelease];
-
-    id flipCamera = [[[UIBarButtonItem alloc]
+                    ];
+    
+    id flipCamera = [[UIBarButtonItem alloc]
                        initWithBarButtonSystemItem:UIBarButtonSystemItemCamera
                        target:(id)self
                        action:@selector(flipCameraButtonPressed:)
-                       ] autorelease];
-
-    NSMutableArray *items;
-
+                       ];
+    
 #if USE_SHUTTER
-    id shutterButton = [[[UIBarButtonItem alloc]
+    id shutterButton = [[UIBarButtonItem alloc]
                         initWithBarButtonSystemItem:UIBarButtonSystemItemCamera
                         target:(id)self
                         action:@selector(shutterButtonPressed)
-                        ] autorelease];
-
-    if (_processor.isShowFlipCameraButton) {
-      items = [NSMutableArray arrayWithObjects:flexSpace, cancelButton, flexSpace, flipCamera, shutterButton, nil];
-    } else {
-      items = [NSMutableArray arrayWithObjects:flexSpace, cancelButton, flexSpace, shutterButton, nil];
-    }
+                        ];
+    
+    toolbar.items = [NSArray arrayWithObjects:flexSpace,cancelButton,flexSpace, flipCamera ,shutterButton,nil];
 #else
-    if (_processor.isShowFlipCameraButton) {
-      items = [@[flexSpace, cancelButton, flexSpace, flipCamera] mutableCopy];
-    } else {
-      items = [@[flexSpace, cancelButton, flexSpace] mutableCopy];
-    }
+    toolbar.items = [NSArray arrayWithObjects:flexSpace,cancelButton,flexSpace, flipCamera,nil];
 #endif
-
-    if (_processor.isShowTorchButton && !_processor.isFrontCamera) {
-      AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
-      if ([device hasTorch] && [device hasFlash]) {
-        NSURL *bundleURL = [[NSBundle mainBundle] URLForResource:@"CDVBarcodeScanner" withExtension:@"bundle"];
-        NSBundle *bundle = [NSBundle bundleWithURL:bundleURL];
-        NSString *imagePath = [bundle pathForResource:@"torch" ofType:@"png"];
-        UIImage *image = [UIImage imageWithContentsOfFile:imagePath];
-
-        id torchButton = [[[UIBarButtonItem alloc]
-                           initWithImage:image
-                                   style:UIBarButtonItemStylePlain
-                                  target:(id)self
-                                  action:@selector(torchButtonPressed:)
-                           ] autorelease];
-
-      [items insertObject:torchButton atIndex:0];
-    }
-  }
-
-    toolbar.items = items;
-
     bounds = overlayView.bounds;
-
+    
     [toolbar sizeToFit];
     CGFloat toolbarHeight  = [toolbar frame].size.height;
     CGFloat rootViewHeight = CGRectGetHeight(bounds);
     CGFloat rootViewWidth  = CGRectGetWidth(bounds);
     CGRect  rectArea       = CGRectMake(0, rootViewHeight - toolbarHeight, rootViewWidth, toolbarHeight);
     [toolbar setFrame:rectArea];
-
+    
     [overlayView addSubview: toolbar];
-
+    
     UIImage* reticleImage = [self buildReticleImage];
-    UIView* reticleView = [[[UIImageView alloc] initWithImage:reticleImage] autorelease];
+    UIView* reticleView = [[UIImageView alloc] initWithImage: reticleImage];
     CGFloat minAxis = MIN(rootViewHeight, rootViewWidth);
-
+    
     rectArea = CGRectMake(
-        (CGFloat) (0.5 * (rootViewWidth  - minAxis)),
-        (CGFloat) (0.5 * (rootViewHeight - minAxis)),
-        minAxis,
-        minAxis
-    );
-
+                          0.5 * (rootViewWidth  - minAxis),
+                          0.5 * (rootViewHeight - minAxis),
+                          minAxis,
+                          minAxis
+                          );
+    
     [reticleView setFrame:rectArea];
-
+    NSLog(@"rectArea:%@", NSStringFromCGSize(rectArea.size));
+    
     reticleView.opaque           = NO;
     reticleView.contentMode      = UIViewContentModeScaleAspectFit;
-    reticleView.autoresizingMask = (UIViewAutoresizing) (0
-        | UIViewAutoresizingFlexibleLeftMargin
-        | UIViewAutoresizingFlexibleRightMargin
-        | UIViewAutoresizingFlexibleTopMargin
-        | UIViewAutoresizingFlexibleBottomMargin)
+    reticleView.autoresizingMask = 0
+    | UIViewAutoresizingFlexibleLeftMargin
+    | UIViewAutoresizingFlexibleRightMargin
+    | UIViewAutoresizingFlexibleTopMargin
+    | UIViewAutoresizingFlexibleBottomMargin
     ;
-
+    
+    //overlayView.backgroundColor = [UIColor whiteColor];
+    //overlayView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:.4];
+    overlayView.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.6];
+    reticleView.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.1];
     [overlayView addSubview: reticleView];
-
+    NSLog(@"overlayView backgroundcolor:%@", overlayView.backgroundColor);
+    NSLog(@"reticleView backgroundcolor:%@", reticleView.backgroundColor);
+    
     return overlayView;
 }
 
 //--------------------------------------------------------------------------
 
 #define RETICLE_SIZE    500.0f
-#define RETICLE_WIDTH    1.0f
+#define RETICLE_WIDTH    10.0f
 #define RETICLE_OFFSET   60.0f
 #define RETICLE_ALPHA     0.4f
 
@@ -1113,86 +1188,89 @@ parentViewController:(UIViewController*)parentViewController
 - (UIImage*)buildReticleImage {
     UIImage* result;
     UIGraphicsBeginImageContext(CGSizeMake(RETICLE_SIZE, RETICLE_SIZE));
-    CGContextRef context = UIGraphicsGetCurrentContext();
-
-    // if (self.processor.is1D) {
-    //     UIColor* color = [UIColor colorWithRed:0.0 green:0.0 blue:0.0 alpha:RETICLE_ALPHA];
-    //     CGContextSetStrokeColorWithColor(context, color.CGColor);
-    //     CGContextSetLineWidth(context, RETICLE_WIDTH);
-    //     CGContextBeginPath(context);
-    //     CGFloat lineOffset = (CGFloat) (RETICLE_OFFSET+(0.5*RETICLE_WIDTH));
-    //     CGContextMoveToPoint(context, lineOffset, RETICLE_SIZE/2);
-    //     CGContextAddLineToPoint(context, RETICLE_SIZE-lineOffset, (CGFloat) (0.5*RETICLE_SIZE));
-    //     CGContextStrokePath(context);
-    // }
-
+//    CGContextRef context = UIGraphicsGetCurrentContext();
+//    if (self.processor.is1D) {
+//        UIColor* color = [UIColor colorWithRed:1.0 green:0.0 blue:0.0 alpha:RETICLE_ALPHA];
+//        CGContextSetStrokeColorWithColor(context, color.CGColor);
+//        CGContextSetLineWidth(context, RETICLE_WIDTH);
+//        CGContextBeginPath(context);
+//        CGFloat lineOffset = RETICLE_OFFSET+(0.5*RETICLE_WIDTH);
+//        CGContextMoveToPoint(context, lineOffset, RETICLE_SIZE/2);
+//        CGContextAddLineToPoint(context, RETICLE_SIZE-lineOffset, 0.5*RETICLE_SIZE);
+//        CGContextStrokePath(context);
+//    }
+    
     if (self.processor.is2D) {
-        UIColor* color = [UIColor colorWithRed:176/255.0 green:166/255.0 blue:163/255.0];
-        CGContextSetStrokeColorWithColor(context, color.CGColor);
-        CGContextSetLineWidth(context, RETICLE_WIDTH);
-        CGContextStrokeRect(context,
-                            CGRectMake(
-                                       RETICLE_OFFSET,
-                                       RETICLE_OFFSET,
-                                       RETICLE_SIZE-2*RETICLE_OFFSET,
-                                       RETICLE_SIZE-2*RETICLE_OFFSET
-                                       )
-                            );
+        UIBezierPath *path = [UIBezierPath bezierPath];
+        // 左上角横线
+        [path moveToPoint:CGPointMake(RETICLE_OFFSET , RETICLE_OFFSET)];
+        [path addLineToPoint:CGPointMake(RETICLE_OFFSET + 20, RETICLE_OFFSET)];
+        // 左上角竖线
+        [path moveToPoint:CGPointMake(RETICLE_OFFSET + 2 , RETICLE_OFFSET)];
+        [path addLineToPoint:CGPointMake(RETICLE_OFFSET + 2, RETICLE_OFFSET + 20)];
+        
+        //UIImageView* img2 = [[UIImageView alloc] initWithFrame:CGRectMake(35 + c_width, y + 76, corWidth, corWidth)];
+        //右上角横线
+        [path moveToPoint:CGPointMake(RETICLE_SIZE - RETICLE_OFFSET, RETICLE_OFFSET)];
+        [path addLineToPoint:CGPointMake(RETICLE_SIZE - RETICLE_OFFSET - 20, RETICLE_OFFSET)];
+        //右上角竖线
+        [path moveToPoint:CGPointMake(RETICLE_SIZE - RETICLE_OFFSET - 2, RETICLE_OFFSET)];
+        [path addLineToPoint:CGPointMake(RETICLE_SIZE - RETICLE_OFFSET - 2, RETICLE_OFFSET + 20)];
+        
+        // 左下角横线
+        [path moveToPoint:CGPointMake(RETICLE_OFFSET , RETICLE_SIZE - RETICLE_OFFSET)];
+        [path addLineToPoint:CGPointMake(RETICLE_OFFSET + 20, RETICLE_SIZE - RETICLE_OFFSET)];
+        // 左下角竖线
+        [path moveToPoint:CGPointMake(RETICLE_OFFSET + 2 , RETICLE_SIZE - RETICLE_OFFSET)];
+        [path addLineToPoint:CGPointMake(RETICLE_OFFSET + 2, RETICLE_SIZE - RETICLE_OFFSET - 20)];
+        
+        //右下角横线
+        [path moveToPoint:CGPointMake(RETICLE_SIZE - RETICLE_OFFSET, RETICLE_SIZE - RETICLE_OFFSET)];
+        [path addLineToPoint:CGPointMake(RETICLE_SIZE - RETICLE_OFFSET - 20, RETICLE_SIZE - RETICLE_OFFSET)];
+        //右下角竖线
+        [path moveToPoint:CGPointMake(RETICLE_SIZE - RETICLE_OFFSET - 2, RETICLE_SIZE - RETICLE_OFFSET)];
+        [path addLineToPoint:CGPointMake(RETICLE_SIZE - RETICLE_OFFSET - 2, RETICLE_SIZE - RETICLE_OFFSET - 20)];
+        
+        [path setLineWidth:4];
+        [[UIColor greenColor] setStroke];
+        [path stroke];
+        
+        //NSLog(@"uiscreen width：%f", [UIScreen mainScreen].bounds.size.width);
+        //NSLog(@"uiscreen height：%f", [UIScreen mainScreen].bounds.size.height);
+        
+//        UIColor* color = [UIColor colorWithRed:0.0 green:1.0 blue:0.0 alpha:RETICLE_ALPHA];
+//        CGContextSetStrokeColorWithColor(context, color.CGColor);
+//        CGContextSetLineWidth(context, RETICLE_WIDTH);
+//        CGContextStrokeRect(context,
+//                            CGRectMake(
+//                                       RETICLE_OFFSET,
+//                                       RETICLE_OFFSET,
+//                                       RETICLE_SIZE-2*RETICLE_OFFSET,
+//                                       RETICLE_SIZE-2*RETICLE_OFFSET
+//                                       )
+//                            );
     }
-    [self addCorner]
+    
     result = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
     return result;
 }
 
--(void)addCorner:(CGContextRef)ctx rect:(CGRect)rect{
-    CGContextSetLineWidth(ctx, 2);
-    CGContextSetRGBStrokeColor(ctx,255 /255.0, 255/255.0, 255/255.0, 1 );
-    //    左上角
-    CGPoint leftPointsA[] = {
-        CGPointMake(rect.origin.x - 5, rect.origin.y + 5),
-        CGPointMake(rect.origin.x - 5, rect.origin.y - 5),
-        CGPointMake(rect.origin.x + 15, rect.origin.y - 5),
-    };
-    CGContextAddLines(ctx, leftPointsA, 3);
-    // 右上角
-    CGPoint rightPointsA[] = {
-        CGPointMake(rect.origin.x + rect.size.width + 5, rect.origin.y + 5),
-        CGPointMake(rect.origin.x + rect.size.width + 5, rect.origin.y - 5),
-        CGPointMake(rect.origin.x + rect.size.width -15, rect.origin.y - 5)
-    };
-    CGContextAddLines(ctx, rightPointsA, 3);
-    //左下角
-    CGPoint leftPointsB[] = {
-        CGPointMake(rect.origin.x - 5, rect.origin.y +rect.size.height - 5),
-        CGPointMake(rect.origin.x - 5, rect.origin.y + rect.size.height + 5),
-        CGPointMake(rect.origin.x + 15, rect.origin.y +rect.size.height + 5)
-    };
-    CGContextAddLines(ctx, leftPointsB, 3);
-    //右下角
-    CGPoint rightPointsB[] = {
-        CGPointMake(rect.origin.x + rect.size.width + 5, rect.origin.y +rect.size.height - 5),
-        CGPointMake(rect.origin.x + rect.size.width + 5, rect.origin.y + rect.size.height + 5),
-        CGPointMake(rect.origin.x + rect.size.width - 15, rect.origin.y +rect.size.height + 5)
-    };
-    CGContextAddLines(ctx, rightPointsB, 3);
-    CGContextStrokePath(ctx);
-}
 #pragma mark CDVBarcodeScannerOrientationDelegate
 
 - (BOOL)shouldAutorotate
 {
-    return YES;
+    return NO;
 }
 
 - (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation
 {
-    return [[UIApplication sharedApplication] statusBarOrientation];
+    return UIInterfaceOrientationPortrait;
 }
 
 - (NSUInteger)supportedInterfaceOrientations
 {
-    return UIInterfaceOrientationMaskAll;
+    return UIInterfaceOrientationMaskPortrait;
 }
 
 - (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)interfaceOrientation
@@ -1200,28 +1278,20 @@ parentViewController:(UIViewController*)parentViewController
     if ((self.orientationDelegate != nil) && [self.orientationDelegate respondsToSelector:@selector(shouldAutorotateToInterfaceOrientation:)]) {
         return [self.orientationDelegate shouldAutorotateToInterfaceOrientation:interfaceOrientation];
     }
-
+    
     return YES;
 }
 
 - (void) willAnimateRotationToInterfaceOrientation:(UIInterfaceOrientation)orientation duration:(NSTimeInterval)duration
 {
-    [UIView setAnimationsEnabled:NO];
-    AVCaptureVideoPreviewLayer* previewLayer = self.processor.previewLayer;
-    previewLayer.frame = self.view.bounds;
-
-    if (orientation == UIInterfaceOrientationLandscapeLeft) {
-        [previewLayer setOrientation:AVCaptureVideoOrientationLandscapeLeft];
-    } else if (orientation == UIInterfaceOrientationLandscapeRight) {
-        [previewLayer setOrientation:AVCaptureVideoOrientationLandscapeRight];
-    } else if (orientation == UIInterfaceOrientationPortrait) {
-        [previewLayer setOrientation:AVCaptureVideoOrientationPortrait];
-    } else if (orientation == UIInterfaceOrientationPortraitUpsideDown) {
-        [previewLayer setOrientation:AVCaptureVideoOrientationPortraitUpsideDown];
-    }
-
-    previewLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
-    [UIView setAnimationsEnabled:YES];
+    [CATransaction begin];
+    
+    self.processor.previewLayer.connection.videoOrientation = orientation;
+    [self.processor.previewLayer layoutSublayers];
+    self.processor.previewLayer.frame = self.view.bounds;
+    
+    [CATransaction commit];
+    [super willAnimateRotationToInterfaceOrientation:orientation duration:duration];
 }
 
 @end
