@@ -55,20 +55,20 @@
     <framework src="src/android/barcodescanner.gradle" custom="true" type="gradleReference"/>
     <resource-file src="src/android/barcodescanner-release-2.1.5.aar" target="libs/barcodescanner.aar"/>
     <resource-file src="src/android/source/zxing.jar" target="libs/zxing.jar"/>
-    <resource-file src="src/android/source/drawable/btn_back_normal.png" target="res/drawable">
-    <resource-file src="src/android/source/drawable/btn_back_press.png" target="res/drawable">
-    <resource-file src="src/android/source/drawable/launcher_icon.png" target="res/drawable">
-    <resource-file src="src/android/source/drawable/scan_light.png" target="res/drawable">
-    <resource-file src="src/android/source/drawable/share_via_barcode.png" target="res/drawable">
-    <resource-file src="src/android/source/drawable/shopper_icon.png" target="res/drawable">
-    <resource-file src="src/android/source/layout/capture.xml" target="res/layout">
-    <resource-file src="src/android/source/raw/beep.ogg" target="res/raw">
-    <resource-file src="src/android/source/values/arrays.xml" target="res/values">
-    <resource-file src="src/android/source/values/colors.xml" target="res/values">
-    <resource-file src="src/android/source/values/dimens.xml" target="res/values">
-    <resource-file src="src/android/source/values/ids.xml" target="res/values">
-    <resource-file src="src/android/source/values/styles.xml" target="res/values">
-    <resource-file src="src/android/source/xml/preferences.xml" target="res/xml">
+    <resource-file src="src/android/source/drawable/btn_back_normal.png" target="res/drawable" />
+    <resource-file src="src/android/source/drawable/btn_back_press.png" target="res/drawable" />
+    <resource-file src="src/android/source/drawable/launcher_icon.png" target="res/drawable" />
+    <resource-file src="src/android/source/drawable/scan_light.png" target="res/drawable" />
+    <resource-file src="src/android/source/drawable/share_via_barcode.png" target="res/drawable" />
+    <resource-file src="src/android/source/drawable/shopper_icon.png" target="res/drawable" />
+    <resource-file src="src/android/source/layout/capture.xml" target="res/layout" />
+    <resource-file src="src/android/source/raw/beep.ogg" target="res/raw" />
+    <resource-file src="src/android/source/values/arrays.xml" target="res/values" />
+    <resource-file src="src/android/source/values/colors.xml" target="res/values" />
+    <resource-file src="src/android/source/values/dimens.xml" target="res/values" />
+    <resource-file src="src/android/source/values/ids.xml" target="res/values" />
+    <resource-file src="src/android/source/values/styles.xml" target="res/values" />
+    <resource-file src="src/android/source/xml/preferences.xml" target="res/xml" />
   </platform>
   <platform name="windows">
     <js-module src="src/windows/BarcodeScannerProxy.js" name="BarcodeScannerProxy">
