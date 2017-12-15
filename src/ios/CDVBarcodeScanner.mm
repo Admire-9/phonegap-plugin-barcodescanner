@@ -874,7 +874,7 @@ parentViewController:(UIViewController*)parentViewController
     // btn.backgroundColor = [UIColor orangeColor];
     // btn.layer.cornerRadius = 10;
     // [btn setTitle:@"结束" forState:UIControlStateNormal];
-    [btn setImage:[UIImage imageNamed:@"CDVBarcodeScanner/scanner-back.png"] forState:UIControlStateNormal];
+    [btn setImage:[UIImage imageNamed:@"CDVBarcodeScanner.bundle/scanner-back.png"] forState:UIControlStateNormal];
     SEL eventHander = @selector(cancelButtonPressed:);
     [btn addTarget:self action:eventHander forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:btn];
