@@ -869,14 +869,15 @@ parentViewController:(UIViewController*)parentViewController
     [self drawLabelTip];
     
     // 结束按钮
-    // UIButton* btn = [UIButton buttonWithType:UIButtonTypeRoundedRect];
-    // btn.frame = CGRectMake(self.cutRect.origin.x + self.cutRect.size.width/2 - 60, self.cutRect.origin.y + self.cutRect.size.height + 40, 120, 40);
+    UIButton* btn = [UIButton buttonWithType:UIButtonTypeCustom];
+    btn.frame = CGRectMake(self.cutRect.origin.x + self.cutRect.size.width/2 - 60, self.cutRect.origin.y + self.cutRect.size.height + 40, 120, 40);
     // btn.backgroundColor = [UIColor orangeColor];
     // btn.layer.cornerRadius = 10;
     // [btn setTitle:@"结束" forState:UIControlStateNormal];
-    // SEL eventHander = @selector(cancelButtonPressed:);
-    // [btn addTarget:self action:eventHander forControlEvents:UIControlEventTouchUpInside];
-    // [self.view addSubview:btn];
+    [btn setImage:[UIImage imageNamed:@"scanner-back.png"] forState:0];
+    SEL eventHander = @selector(cancelButtonPressed:);
+    [btn addTarget:self action:eventHander forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:btn];
     
     // 文本输入框
     // [self drawTextField];
