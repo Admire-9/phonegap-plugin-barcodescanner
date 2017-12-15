@@ -870,11 +870,11 @@ parentViewController:(UIViewController*)parentViewController
     
     // 结束按钮
     UIButton* btn = [UIButton buttonWithType:UIButtonTypeCustom];
-    btn.frame = CGRectMake(self.cutRect.origin.x + self.cutRect.size.width/2 - 60, self.cutRect.origin.y + self.cutRect.size.height + 40, 120, 40);
+    btn.frame = CGRectMake(24, 40, 24, 24);
     // btn.backgroundColor = [UIColor orangeColor];
     // btn.layer.cornerRadius = 10;
     // [btn setTitle:@"结束" forState:UIControlStateNormal];
-    [btn setImage:[UIImage imageNamed:@"scanner-back.png"] forState:0];
+    [btn setImage:[UIImage imageNamed:@"CDVBarcodeScanner/scanner-back.png"] forState:UIControlStateNormal];
     SEL eventHander = @selector(cancelButtonPressed:);
     [btn addTarget:self action:eventHander forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:btn];
@@ -985,7 +985,7 @@ parentViewController:(UIViewController*)parentViewController
     // 画出移动的横线
     [path moveToPoint:CGPointMake(self.cutRect.origin.x , 5)];
     [path addLineToPoint:CGPointMake(self.cutRect.origin.x + self.cutRect.size.width, 5)];
-    [[UIColor greenColor] setStroke];
+    [[UIColor orangeColor] setStroke];
     [path setLineWidth:2];
     [path stroke];
     UIImage* im = UIGraphicsGetImageFromCurrentImageContext();
