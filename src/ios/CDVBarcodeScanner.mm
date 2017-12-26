@@ -431,7 +431,17 @@ parentViewController:(UIViewController*)parentViewController
         if (!device) return @"unable to obtain video capture device";
         
     }
-    
+     // set focus params if available to improve focusing
+    [device lockForConfiguration:&error];
+    if (error == nil) {
+        if([device isFocusModeSupported:AVCaptureFocusModeContinuousAutoFocus]) {
+            [device setFocusMode:AVCaptureFocusModeContinuousAutoFocus];
+        }
+        if([device isAutoFocusRangeRestrictionSupported]) {
+            [device setAutoFocusRangeRestriction:AVCaptureAutoFocusRangeRestrictionNear];
+        }
+    }
+    [device unlockForConfiguration];
     
     AVCaptureDeviceInput* input = [AVCaptureDeviceInput deviceInputWithDevice:device error:&error];
     if (!input) return @"unable to obtain video capture device input";
@@ -439,42 +449,49 @@ parentViewController:(UIViewController*)parentViewController
     AVCaptureVideoDataOutput* output = [[AVCaptureVideoDataOutput alloc] init];
     if (!output) return @"unable to obtain video capture output";
     
-    NSDictionary* videoOutputSettings = [NSDictionary
-                                         dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_32BGRA]
-                                         forKey:(id)kCVPixelBufferPixelFormatTypeKey
-                                         ];
-    
-    output.alwaysDiscardsLateVideoFrames = YES;
-    output.videoSettings = videoOutputSettings;
-    
-    [output setSampleBufferDelegate:self queue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0)];
-    
-    if (![captureSession canSetSessionPreset:AVCaptureSessionPresetHigh]) {
-        return @"unable to preset high quality video capture";
+    [output setMetadataObjectsDelegate:self queue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0)];
+
+    if ([captureSession canSetSessionPreset:AVCaptureSessionPresetHigh]) {
+      captureSession.sessionPreset = AVCaptureSessionPresetHigh;
+    } else if ([captureSession canSetSessionPreset:AVCaptureSessionPresetMedium]) {
+      captureSession.sessionPreset = AVCaptureSessionPresetMedium;
+    } else {
+      return @"unable to preset high nor medium quality video capture";
     }
-    
-    captureSession.sessionPreset = AVCaptureSessionPresetHigh;
-    
+
     if ([captureSession canAddInput:input]) {
         [captureSession addInput:input];
     }
     else {
         return @"unable to add video capture device input to session";
     }
-    
+
     if ([captureSession canAddOutput:output]) {
         [captureSession addOutput:output];
     }
     else {
         return @"unable to add video capture output to session";
     }
-    
+
+    [output setMetadataObjectTypes:@[AVMetadataObjectTypeQRCode,
+                                     AVMetadataObjectTypeAztecCode,
+                                     AVMetadataObjectTypeDataMatrixCode,
+                                     AVMetadataObjectTypeUPCECode,
+                                     AVMetadataObjectTypeEAN8Code,
+                                     AVMetadataObjectTypeEAN13Code,
+                                     AVMetadataObjectTypeCode128Code,
+                                     AVMetadataObjectTypeCode93Code,
+                                     AVMetadataObjectTypeCode39Code,
+                                     AVMetadataObjectTypeITF14Code,
+                                     AVMetadataObjectTypePDF417Code]];
+
     // setup capture preview layer
     self.previewLayer = [AVCaptureVideoPreviewLayer layerWithSession:captureSession];
-    
+    self.previewLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
+
     // run on next event loop pass [captureSession startRunning]
     [captureSession performSelector:@selector(startRunning) withObject:nil afterDelay:0];
-    
+
     return nil;
 }
 
